@@ -1,0 +1,3 @@
+*.csv
+!team_aliases.csv
+!team_alias_candidates.csv
