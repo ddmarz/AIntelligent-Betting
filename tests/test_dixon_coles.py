@@ -1,6 +1,12 @@
 import numpy as np
 import pandas as pd
-from dixon_coles import DixonColesModel, tau_correction, fit_dixon_coles
+from dixon_coles import (
+    DixonColesModel,
+    tau_correction,
+    fit_dixon_coles,
+    predict_score_matrix,
+    match_outcome_probs,
+)
 
 
 def test_dixon_coles_model_holds_fields():
@@ -73,3 +79,27 @@ def test_fit_dixon_coles_ignores_matches_after_cutoff():
         matches[matches["MatchDate"] < cutoff]["AwayTeam"]
     )
     assert set(model.teams) == used_teams
+
+
+def _toy_model():
+    return DixonColesModel(
+        attack={"Strong": 0.5, "Weak": -0.5},
+        defense={"Strong": -0.3, "Weak": 0.3},
+        home_advantage=0.25,
+        rho=-0.1,
+        teams=["Strong", "Weak"],
+    )
+
+
+def test_predict_score_matrix_sums_to_one():
+    matrix = predict_score_matrix(_toy_model(), "Strong", "Weak", max_goals=10)
+    assert matrix.shape == (11, 11)
+    assert abs(matrix.sum() - 1.0) < 1e-6
+
+
+def test_match_outcome_probs_sum_to_one_and_favor_strong_team():
+    matrix = predict_score_matrix(_toy_model(), "Strong", "Weak", max_goals=10)
+    p_home, p_draw, p_away = match_outcome_probs(matrix)
+
+    assert abs((p_home + p_draw + p_away) - 1.0) < 1e-6
+    assert p_home > p_away

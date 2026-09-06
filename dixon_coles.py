@@ -79,3 +79,26 @@ def fit_dixon_coles(matches, as_of_date, xi):
         rho=float(rho),
         teams=teams,
     )
+
+
+def predict_score_matrix(model, home_team, away_team, max_goals=10):
+    lambda_home = np.exp(model.attack[home_team] + model.defense[away_team] + model.home_advantage)
+    lambda_away = np.exp(model.attack[away_team] + model.defense[home_team])
+
+    goals = np.arange(max_goals + 1)
+    p_home = poisson.pmf(goals, lambda_home)
+    p_away = poisson.pmf(goals, lambda_away)
+    matrix = np.outer(p_home, p_away)
+
+    for x in (0, 1):
+        for y in (0, 1):
+            matrix[x, y] *= tau_correction(x, y, lambda_home, lambda_away, model.rho)
+
+    return matrix / matrix.sum()
+
+
+def match_outcome_probs(score_matrix):
+    p_home_win = np.tril(score_matrix, -1).sum()
+    p_draw = np.trace(score_matrix)
+    p_away_win = np.triu(score_matrix, 1).sum()
+    return float(p_home_win), float(p_draw), float(p_away_win)
