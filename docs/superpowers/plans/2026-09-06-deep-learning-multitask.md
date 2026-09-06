@@ -4,7 +4,7 @@
 >
 > **Note for this project:** PyTorch is not installed in this environment. All code and tests in this plan are written to be correct and runnable once PyTorch is installed, but were NOT executed during authoring. The first thing to do after installing PyTorch is run the full test suite (`python -m pytest tests/ -v`) before trusting any of it.
 
-**Goal:** A multi-task PyTorch model (CNN 1D + Transformer, adapted from Gao, Cheng & Gao 2025) that predicts goals, shots, and corners for both teams in a match, trained with walk-forward fine-tuning, evaluated against Dixon-Coles/market on goals and via Negative-Binomial NLL on shots/corners.
+**Goal:** A multi-task PyTorch model (CNN 1D + Transformer, adapted from Gao, Cheng & Gao 2025) that predicts goals, shots, and corners for both teams in a match, trained with walk-forward fine-tuning, evaluated against the market on goals and via Negative-Binomial NLL on shots/corners.
 
 **Architecture:** A `dl_model/` package: `data.py` (vocab/normalization/Dataset), `model.py` (the network), `losses.py` (Poisson and Negative-Binomial NLL), `evaluation.py` (goal log-loss vs market, count NLL), `train.py` (training loop, walk-forward orchestration, report).
 
@@ -18,7 +18,7 @@
 - Continuous inputs (19 columns, see `dl_model.data.CONTINUOUS_COLUMNS`): `EloDiff`, 4 rolling-goal columns, 4 form columns, 6 cluster columns, 4 `has_*` flags.
 - No market odds as model input.
 - Goals: Poisson heads. Shots/corners: Negative-Binomial heads (mean + dispersion), loss masked to `has_stats=True` rows only.
-- Goals task trains/evaluates on all 38 leagues; comparison against Dixon-Coles/market restricted to `TARGET_LEAGUES` (`I1, E0, SP1, D1, F1`, imported from `evaluate_dixon_coles`).
+- Goals task trains/evaluates on all 38 leagues; comparison against the market restricted to `TARGET_LEAGUES` (`I1, E0, SP1, D1, F1`, defined in `dl_model.data`).
 - Training: full training on a burn-in window of seasons, then per-season fine-tuning walk-forward (not full retraining) — mirrors the cited paper's rolling-window approach.
 - No model persistence beyond what the walk-forward loop needs internally.
 
@@ -137,7 +137,7 @@ git commit -m "Add Poisson and Negative-Binomial NLL losses for multi-task model
 - Test: `tests/test_dl_data.py`
 
 **Interfaces:**
-- Produces: `CONTINUOUS_COLUMNS: list[str]` (19 entries), `NUM_CONTINUOUS_FEATURES: int` (`len(CONTINUOUS_COLUMNS)`), `UNKNOWN_TOKEN: str`, `build_vocab(values: Iterable[str]) -> dict[str, int]` (assigns `UNKNOWN_TOKEN` to index 0, every other unique value to a distinct index), `encode_categorical(value: str, vocab: dict[str, int]) -> int` (falls back to the unknown index for values not in `vocab`), `compute_normalization_stats(matches: pandas.DataFrame, columns=CONTINUOUS_COLUMNS) -> tuple[pandas.Series, pandas.Series]` (means, stds — stds of 0 replaced with 1.0), `MatchDataset(torch.utils.data.Dataset)` constructed as `MatchDataset(matches, division_vocab, team_vocab, means, stds)`, `__getitem__` returns `(continuous: Tensor[19], division_idx: Tensor[], home_idx: Tensor[], away_idx: Tensor[], targets: dict)` where `targets` has keys `goals_home, goals_away, shots_home, shots_away, corners_home, corners_away` (float tensors) and `has_stats` (bool tensor), taken directly from the matching `matches_clean.csv` columns (`FTHome, FTAway, HomeShots, AwayShots, HomeCorners, AwayCorners, has_stats`) — these are already imputed/flagged by Fase 1's `dataset.py`, so no NaN handling is needed here. Also produces `load_all_matches(path: str = "matches_clean.csv") -> pandas.DataFrame` (reads the full clean dataset, no league filtering — unlike `evaluate_dixon_coles.load_target_matches`, this keeps all 38 leagues for the goals task — with `MatchDate` parsed as datetime, sorted by `MatchDate`).
+- Produces: `CONTINUOUS_COLUMNS: list[str]` (19 entries), `NUM_CONTINUOUS_FEATURES: int` (`len(CONTINUOUS_COLUMNS)`), `UNKNOWN_TOKEN: str`, `build_vocab(values: Iterable[str]) -> dict[str, int]` (assigns `UNKNOWN_TOKEN` to index 0, every other unique value to a distinct index), `encode_categorical(value: str, vocab: dict[str, int]) -> int` (falls back to the unknown index for values not in `vocab`), `compute_normalization_stats(matches: pandas.DataFrame, columns=CONTINUOUS_COLUMNS) -> tuple[pandas.Series, pandas.Series]` (means, stds — stds of 0 replaced with 1.0), `MatchDataset(torch.utils.data.Dataset)` constructed as `MatchDataset(matches, division_vocab, team_vocab, means, stds)`, `__getitem__` returns `(continuous: Tensor[19], division_idx: Tensor[], home_idx: Tensor[], away_idx: Tensor[], targets: dict)` where `targets` has keys `goals_home, goals_away, shots_home, shots_away, corners_home, corners_away` (float tensors) and `has_stats` (bool tensor), taken directly from the matching `matches_clean.csv` columns (`FTHome, FTAway, HomeShots, AwayShots, HomeCorners, AwayCorners, has_stats`) — these are already imputed/flagged by Fase 1's `dataset.py`, so no NaN handling is needed here. Also produces `TARGET_LEAGUES: list[str]` (`["I1", "E0", "SP1", "D1", "F1"]`, the Big 5 leagues used to scope the goals-vs-market evaluation) and `load_all_matches(path: str = "matches_clean.csv") -> pandas.DataFrame` (reads the full clean dataset with no league filtering — keeps all 38 leagues for the goals task — with `MatchDate` parsed as datetime, sorted by `MatchDate`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -505,19 +505,26 @@ git commit -m "Add CNN+Transformer multi-task model architecture"
 - Test: `tests/test_dl_evaluation.py`
 
 **Interfaces:**
-- Consumes: `match_outcome_probs` (from `dixon_coles.py`), `implied_probabilities`, `log_loss`, `TARGET_LEAGUES` (from `evaluate_dixon_coles.py`), `MatchDataset` (from `dl_model.data`, Task 2), `negative_binomial_nll` (from `dl_model.losses`, Task 1).
-- Produces: `poisson_score_matrix(lambda_home: float, lambda_away: float, max_goals: int = 10) -> numpy.ndarray` (no τ correction — this is the DL model's own score matrix, distinct from Dixon-Coles' `predict_score_matrix`), `evaluate_goals(model, matches: pandas.DataFrame, division_vocab, team_vocab, means, stds, batch_size: int = 512) -> pandas.DataFrame` (columns `MatchDate, model_log_loss, market_log_loss` — same shape as `evaluate_dixon_coles.walk_forward_evaluate`'s output, for direct side-by-side comparison), `evaluate_counts(model, matches: pandas.DataFrame, division_vocab, team_vocab, means, stds, batch_size: int = 512) -> pandas.DataFrame` (columns `shots_nll, corners_nll`, one row per match).
+- Consumes: `MatchDataset` (from `dl_model.data`, Task 2), `negative_binomial_nll` (from `dl_model.losses`, Task 1).
+- Produces: `poisson_score_matrix(lambda_home: float, lambda_away: float, max_goals: int = 10) -> numpy.ndarray` (no low-score correction — the network can learn any such correlation directly from data), `match_outcome_probs(score_matrix: numpy.ndarray) -> tuple[float, float, float]` (`p_home_win, p_draw, p_away_win`, generic — operates on any score matrix), `implied_probabilities(odd_home: float, odd_draw: float, odd_away: float) -> tuple[float, float, float]` (de-vigged market probabilities), `log_loss(p_home: float, p_draw: float, p_away: float, outcome: str) -> float` (`outcome` one of `"H"/"D"/"A"`), `evaluate_goals(model, matches: pandas.DataFrame, division_vocab, team_vocab, means, stds, batch_size: int = 512) -> pandas.DataFrame` (columns `MatchDate, model_log_loss, market_log_loss`), `evaluate_counts(model, matches: pandas.DataFrame, division_vocab, team_vocab, means, stds, batch_size: int = 512) -> pandas.DataFrame` (columns `shots_nll, corners_nll`, one row per match).
 
 - [ ] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_dl_evaluation.py
+import math
 import numpy as np
 import pandas as pd
-import torch
 from dl_model.data import CONTINUOUS_COLUMNS, build_vocab, compute_normalization_stats
 from dl_model.model import MultiTaskMatchModel
-from dl_model.evaluation import poisson_score_matrix, evaluate_goals, evaluate_counts
+from dl_model.evaluation import (
+    poisson_score_matrix,
+    match_outcome_probs,
+    implied_probabilities,
+    log_loss,
+    evaluate_goals,
+    evaluate_counts,
+)
 
 
 def test_poisson_score_matrix_sums_to_one_and_has_no_tau_artifact():
@@ -525,6 +532,25 @@ def test_poisson_score_matrix_sums_to_one_and_has_no_tau_artifact():
     assert matrix.shape == (11, 11)
     assert abs(matrix.sum() - 1.0) < 1e-6
     assert matrix[0, 0] > 0
+
+
+def test_match_outcome_probs_sum_to_one_and_favor_stronger_side():
+    matrix = poisson_score_matrix(2.5, 0.8, max_goals=10)
+    p_home, p_draw, p_away = match_outcome_probs(matrix)
+    assert abs((p_home + p_draw + p_away) - 1.0) < 1e-6
+    assert p_home > p_away
+
+
+def test_implied_probabilities_removes_bookmaker_margin():
+    p_home, p_draw, p_away = implied_probabilities(2.0, 3.0, 4.0)
+    assert abs((p_home + p_draw + p_away) - 1.0) < 1e-9
+    assert p_home > p_draw > p_away
+
+
+def test_log_loss_picks_probability_of_actual_outcome():
+    assert log_loss(0.5, 0.3, 0.2, "H") == -math.log(0.5)
+    assert log_loss(0.5, 0.3, 0.2, "D") == -math.log(0.3)
+    assert log_loss(0.5, 0.3, 0.2, "A") == -math.log(0.2)
 
 
 def _sample_matches():
@@ -590,14 +616,14 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'dl_model.evaluation'`
 
 ```python
 # dl_model/evaluation.py
+import math
+
 import numpy as np
 import pandas as pd
 import torch
 from scipy.stats import poisson
 from torch.utils.data import DataLoader
 
-from dixon_coles import match_outcome_probs
-from evaluate_dixon_coles import implied_probabilities, log_loss
 from dl_model.data import MatchDataset
 from dl_model.losses import negative_binomial_nll
 
@@ -608,6 +634,28 @@ def poisson_score_matrix(lambda_home, lambda_away, max_goals=10):
     p_away = poisson.pmf(goals, lambda_away)
     matrix = np.outer(p_home, p_away)
     return matrix / matrix.sum()
+
+
+def match_outcome_probs(score_matrix):
+    p_home_win = np.tril(score_matrix, -1).sum()
+    p_draw = np.trace(score_matrix)
+    p_away_win = np.triu(score_matrix, 1).sum()
+    return float(p_home_win), float(p_draw), float(p_away_win)
+
+
+def implied_probabilities(odd_home, odd_draw, odd_away):
+    inv_home, inv_draw, inv_away = 1 / odd_home, 1 / odd_draw, 1 / odd_away
+    total = inv_home + inv_draw + inv_away
+    return inv_home / total, inv_draw / total, inv_away / total
+
+
+OUTCOME_INDEX = {"H": 0, "D": 1, "A": 2}
+
+
+def log_loss(p_home, p_draw, p_away, outcome):
+    probs = (p_home, p_draw, p_away)
+    p_true = probs[OUTCOME_INDEX[outcome]]
+    return -math.log(max(p_true, 1e-15))
 
 
 def evaluate_goals(model, matches, division_vocab, team_vocab, means, stds, batch_size=512):
@@ -679,7 +727,7 @@ def evaluate_counts(model, matches, division_vocab, team_vocab, means, stds, bat
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_dl_evaluation.py -v`
-Expected: 3 passed
+Expected: 6 passed
 
 - [ ] **Step 5: Commit**
 
@@ -697,7 +745,7 @@ git commit -m "Add goal log-loss and count NLL evaluation helpers"
 - Test: `tests/test_dl_train.py`
 
 **Interfaces:**
-- Consumes: `CONTINUOUS_COLUMNS`, `build_vocab`, `compute_normalization_stats`, `MatchDataset`, `load_all_matches` (from `dl_model.data`, Task 2); `MultiTaskMatchModel` (from `dl_model.model`, Task 3); `poisson_nll`, `negative_binomial_nll`, `masked_mean` (from `dl_model.losses`, Task 1); `evaluate_goals`, `evaluate_counts` (from `dl_model.evaluation`, Task 4); `TARGET_LEAGUES` (from `evaluate_dixon_coles.py`).
+- Consumes: `CONTINUOUS_COLUMNS`, `TARGET_LEAGUES`, `build_vocab`, `compute_normalization_stats`, `MatchDataset`, `load_all_matches` (from `dl_model.data`, Task 2); `MultiTaskMatchModel` (from `dl_model.model`, Task 3); `poisson_nll`, `negative_binomial_nll`, `masked_mean` (from `dl_model.losses`, Task 1); `evaluate_goals`, `evaluate_counts` (from `dl_model.evaluation`, Task 4).
 - Produces: `build_model_and_vocabs(matches) -> tuple[MultiTaskMatchModel, dict, dict, pandas.Series, pandas.Series]` (model, division_vocab, team_vocab, means, stds), `make_dataloader(matches, division_vocab, team_vocab, means, stds, batch_size=256, shuffle=True) -> DataLoader`, `compute_total_loss(outputs: dict, targets: dict) -> Tensor` (scalar), `train_epochs(model, dataloader, optimizer, num_epochs) -> None` (mutates `model` in place), `run_walk_forward(matches, burn_in_seasons=5, initial_epochs=20, fine_tune_epochs=3) -> tuple[pandas.DataFrame, pandas.DataFrame]` (goal_results, count_results — same column shapes as `evaluate_goals`/`evaluate_counts`, concatenated across all evaluated seasons), plus a `__main__` block that loads the real dataset, runs the walk-forward, and prints a summary report.
 
 - [ ] **Step 1: Write the failing tests**
@@ -797,8 +845,13 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from evaluate_dixon_coles import TARGET_LEAGUES
-from dl_model.data import build_vocab, compute_normalization_stats, MatchDataset, load_all_matches
+from dl_model.data import (
+    TARGET_LEAGUES,
+    build_vocab,
+    compute_normalization_stats,
+    MatchDataset,
+    load_all_matches,
+)
 from dl_model.model import MultiTaskMatchModel
 from dl_model.losses import poisson_nll, negative_binomial_nll, masked_mean
 from dl_model.evaluation import evaluate_goals, evaluate_counts
@@ -926,12 +979,12 @@ Expected: 2 passed
 - [ ] **Step 5: Run the full test suite**
 
 Run: `python -m pytest tests/ -v`
-Expected: all tests pass (14 Dixon-Coles tests + 4 + 5 + 2 + 3 + 2 = 16 new deep learning tests = 30 total)
+Expected: all 19 tests pass (4 losses + 5 data + 2 model + 6 evaluation + 2 train)
 
 - [ ] **Step 6: Run the real training report (slow — expect a long run)**
 
 Run: `python -m dl_model.train`
-Expected: prints goals task log-loss (model vs market) and shots/corners NLL. This will take a while (burn-in training + per-season fine-tuning over ~20 seasons on the full dataset) — consider timing a single burn-in epoch on a subsample first, the way the Dixon-Coles evaluation was timed before committing to a full run.
+Expected: prints goals task log-loss (model vs market) and shots/corners NLL. This will take a while (burn-in training + per-season fine-tuning over ~20 seasons on the full dataset) — time a single burn-in epoch on a subsample first before committing to a full run.
 
 - [ ] **Step 7: Commit**
 

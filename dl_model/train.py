@@ -2,8 +2,13 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from evaluate_dixon_coles import TARGET_LEAGUES
-from dl_model.data import build_vocab, compute_normalization_stats, MatchDataset, load_all_matches
+from dl_model.data import (
+    TARGET_LEAGUES,
+    build_vocab,
+    compute_normalization_stats,
+    MatchDataset,
+    load_all_matches,
+)
 from dl_model.model import MultiTaskMatchModel
 from dl_model.losses import poisson_nll, negative_binomial_nll, masked_mean
 from dl_model.evaluation import evaluate_goals, evaluate_counts

@@ -1,11 +1,11 @@
+import math
+
 import numpy as np
 import pandas as pd
 import torch
 from scipy.stats import poisson
 from torch.utils.data import DataLoader
 
-from dixon_coles import match_outcome_probs
-from evaluate_dixon_coles import implied_probabilities, log_loss
 from dl_model.data import MatchDataset
 from dl_model.losses import negative_binomial_nll
 
@@ -16,6 +16,28 @@ def poisson_score_matrix(lambda_home, lambda_away, max_goals=10):
     p_away = poisson.pmf(goals, lambda_away)
     matrix = np.outer(p_home, p_away)
     return matrix / matrix.sum()
+
+
+def match_outcome_probs(score_matrix):
+    p_home_win = np.tril(score_matrix, -1).sum()
+    p_draw = np.trace(score_matrix)
+    p_away_win = np.triu(score_matrix, 1).sum()
+    return float(p_home_win), float(p_draw), float(p_away_win)
+
+
+def implied_probabilities(odd_home, odd_draw, odd_away):
+    inv_home, inv_draw, inv_away = 1 / odd_home, 1 / odd_draw, 1 / odd_away
+    total = inv_home + inv_draw + inv_away
+    return inv_home / total, inv_draw / total, inv_away / total
+
+
+OUTCOME_INDEX = {"H": 0, "D": 1, "A": 2}
+
+
+def log_loss(p_home, p_draw, p_away, outcome):
+    probs = (p_home, p_draw, p_away)
+    p_true = probs[OUTCOME_INDEX[outcome]]
+    return -math.log(max(p_true, 1e-15))
 
 
 def evaluate_goals(model, matches, division_vocab, team_vocab, means, stds, batch_size=512):
