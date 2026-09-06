@@ -32,6 +32,10 @@ def test_load_target_matches_filters_to_target_leagues(tmp_path):
         "OddHome": [2.0, 2.0, 2.0],
         "OddDraw": [3.0, 3.0, 3.0],
         "OddAway": [4.0, 4.0, 4.0],
+        "HomeShots": [10, 12, 8],
+        "AwayShots": [8, 9, 11],
+        "HomeTarget": [4, 5, 3],
+        "AwayTarget": [3, 4, 5],
     }).to_csv(csv_path, index=False)
 
     matches = load_target_matches(str(csv_path))

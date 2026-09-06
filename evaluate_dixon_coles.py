@@ -11,6 +11,7 @@ XI_CANDIDATES = [0, 0.0005, 0.001, 0.002, 0.005]
 COLUMNS = [
     "Division", "MatchDate", "Season", "HomeTeam", "AwayTeam",
     "FTHome", "FTAway", "FTResult", "OddHome", "OddDraw", "OddAway",
+    "HomeShots", "AwayShots", "HomeTarget", "AwayTarget",
 ]
 
 
