@@ -1,3 +1,5 @@
+import math
+
 import pandas as pd
 
 from dixon_coles import fit_dixon_coles, predict_score_matrix, match_outcome_probs
@@ -23,3 +25,12 @@ def implied_probabilities(odd_home, odd_draw, odd_away):
     inv_home, inv_draw, inv_away = 1 / odd_home, 1 / odd_draw, 1 / odd_away
     total = inv_home + inv_draw + inv_away
     return inv_home / total, inv_draw / total, inv_away / total
+
+
+OUTCOME_INDEX = {"H": 0, "D": 1, "A": 2}
+
+
+def log_loss(p_home, p_draw, p_away, outcome):
+    probs = (p_home, p_draw, p_away)
+    p_true = probs[OUTCOME_INDEX[outcome]]
+    return -math.log(max(p_true, 1e-15))

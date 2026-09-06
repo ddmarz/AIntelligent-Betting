@@ -1,5 +1,6 @@
+import math
 import pandas as pd
-from evaluate_dixon_coles import TARGET_LEAGUES, load_target_matches, implied_probabilities
+from evaluate_dixon_coles import TARGET_LEAGUES, load_target_matches, implied_probabilities, log_loss
 
 
 def test_implied_probabilities_removes_bookmaker_margin():
@@ -29,3 +30,13 @@ def test_load_target_matches_filters_to_target_leagues(tmp_path):
     assert set(matches["Division"]) == {"I1", "E0"}
     assert set(TARGET_LEAGUES) >= set(matches["Division"])
     assert pd.api.types.is_datetime64_any_dtype(matches["MatchDate"])
+
+
+def test_log_loss_picks_probability_of_actual_outcome():
+    assert log_loss(0.5, 0.3, 0.2, "H") == -math.log(0.5)
+    assert log_loss(0.5, 0.3, 0.2, "D") == -math.log(0.3)
+    assert log_loss(0.5, 0.3, 0.2, "A") == -math.log(0.2)
+
+
+def test_log_loss_confident_correct_prediction_scores_near_zero():
+    assert log_loss(0.99, 0.005, 0.005, "H") < 0.02
