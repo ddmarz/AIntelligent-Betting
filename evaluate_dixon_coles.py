@@ -64,3 +64,29 @@ def walk_forward_evaluate(league_matches, xi):
             })
 
     return pd.DataFrame(records)
+
+
+def run_xi_grid_search(matches):
+    rows = []
+    for xi in XI_CANDIDATES:
+        per_match = []
+        for division in TARGET_LEAGUES:
+            league_matches = matches[matches["Division"] == division]
+            if league_matches.empty:
+                continue
+            per_match.append(walk_forward_evaluate(league_matches, xi))
+        combined = pd.concat(per_match, ignore_index=True)
+        rows.append({
+            "xi": xi,
+            "model_log_loss": combined["model_log_loss"].mean(),
+            "market_log_loss": combined["market_log_loss"].mean(),
+        })
+    return pd.DataFrame(rows)
+
+
+if __name__ == "__main__":
+    matches = load_target_matches()
+    report = run_xi_grid_search(matches)
+    print(report.to_string(index=False))
+    best_xi = report.loc[report["model_log_loss"].idxmin(), "xi"]
+    print(f"\nBest xi: {best_xi}")

@@ -3,10 +3,12 @@ import numpy as np
 import pandas as pd
 from evaluate_dixon_coles import (
     TARGET_LEAGUES,
+    XI_CANDIDATES,
     load_target_matches,
     implied_probabilities,
     log_loss,
     walk_forward_evaluate,
+    run_xi_grid_search,
 )
 
 
@@ -91,3 +93,15 @@ def test_walk_forward_evaluate_returns_finite_log_losses():
 
     assert np.isfinite(result["model_log_loss"]).all()
     assert np.isfinite(result["market_log_loss"]).all()
+
+
+def test_run_xi_grid_search_covers_all_candidates():
+    matches = pd.concat([
+        _fake_league(n_seasons=5).assign(Division="I1"),
+        _fake_league(n_seasons=5).assign(Division="E0"),
+    ], ignore_index=True)
+
+    report = run_xi_grid_search(matches)
+
+    assert set(report["xi"]) == set(XI_CANDIDATES)
+    assert np.isfinite(report["model_log_loss"]).all()
