@@ -1,6 +1,13 @@
 import math
+import numpy as np
 import pandas as pd
-from evaluate_dixon_coles import TARGET_LEAGUES, load_target_matches, implied_probabilities, log_loss
+from evaluate_dixon_coles import (
+    TARGET_LEAGUES,
+    load_target_matches,
+    implied_probabilities,
+    log_loss,
+    walk_forward_evaluate,
+)
 
 
 def test_implied_probabilities_removes_bookmaker_margin():
@@ -40,3 +47,47 @@ def test_log_loss_picks_probability_of_actual_outcome():
 
 def test_log_loss_confident_correct_prediction_scores_near_zero():
     assert log_loss(0.99, 0.005, 0.005, "H") < 0.02
+
+
+def _fake_league(n_seasons=5, teams=("A", "B", "C", "D")):
+    np.random.seed(1)
+    rows = []
+    for season_idx in range(n_seasons):
+        season_start = pd.Timestamp("2015-08-01") + pd.DateOffset(years=season_idx)
+        season_label = f"{season_start.year}-{season_start.year + 1}"
+        for round_num in range(10):
+            date = season_start + pd.Timedelta(days=round_num * 7)
+            shuffled = list(teams)
+            np.random.shuffle(shuffled)
+            for i in range(0, len(shuffled), 2):
+                h, a = shuffled[i], shuffled[i + 1]
+                gh, ga = np.random.poisson(1.4), np.random.poisson(1.1)
+                result = "H" if gh > ga else ("A" if ga > gh else "D")
+                rows.append({
+                    "Division": "I1", "MatchDate": date, "Season": season_label,
+                    "HomeTeam": h, "AwayTeam": a, "FTHome": gh, "FTAway": ga,
+                    "FTResult": result, "OddHome": 2.0, "OddDraw": 3.2, "OddAway": 3.8,
+                })
+    return pd.DataFrame(rows).sort_values("MatchDate").reset_index(drop=True)
+
+
+def test_walk_forward_evaluate_skips_burn_in_seasons():
+    league_matches = _fake_league(n_seasons=5)
+
+    result = walk_forward_evaluate(league_matches, xi=0.001)
+
+    evaluated_seasons = set(
+        league_matches.set_index("MatchDate").loc[result["MatchDate"], "Season"]
+    )
+    burn_in_seasons = set(league_matches["Season"].unique()[:3])
+    assert evaluated_seasons.isdisjoint(burn_in_seasons)
+    assert not result.empty
+
+
+def test_walk_forward_evaluate_returns_finite_log_losses():
+    league_matches = _fake_league(n_seasons=5)
+
+    result = walk_forward_evaluate(league_matches, xi=0.001)
+
+    assert np.isfinite(result["model_log_loss"]).all()
+    assert np.isfinite(result["market_log_loss"]).all()

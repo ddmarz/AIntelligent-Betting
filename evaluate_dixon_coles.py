@@ -34,3 +34,33 @@ def log_loss(p_home, p_draw, p_away, outcome):
     probs = (p_home, p_draw, p_away)
     p_true = probs[OUTCOME_INDEX[outcome]]
     return -math.log(max(p_true, 1e-15))
+
+
+def walk_forward_evaluate(league_matches, xi):
+    seasons_in_order = list(dict.fromkeys(league_matches["Season"]))
+    eval_seasons = seasons_in_order[BURN_IN_SEASONS:]
+
+    records = []
+    for season in eval_seasons:
+        season_matches = league_matches[league_matches["Season"] == season]
+        as_of_date = season_matches["MatchDate"].min()
+        model = fit_dixon_coles(league_matches, as_of_date, xi)
+
+        for _, row in season_matches.iterrows():
+            if row["HomeTeam"] not in model.attack or row["AwayTeam"] not in model.attack:
+                continue
+
+            score_matrix = predict_score_matrix(model, row["HomeTeam"], row["AwayTeam"])
+            p_home, p_draw, p_away = match_outcome_probs(score_matrix)
+            model_ll = log_loss(p_home, p_draw, p_away, row["FTResult"])
+
+            m_home, m_draw, m_away = implied_probabilities(row["OddHome"], row["OddDraw"], row["OddAway"])
+            market_ll = log_loss(m_home, m_draw, m_away, row["FTResult"])
+
+            records.append({
+                "MatchDate": row["MatchDate"],
+                "model_log_loss": model_ll,
+                "market_log_loss": market_ll,
+            })
+
+    return pd.DataFrame(records)
