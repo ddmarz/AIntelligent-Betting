@@ -1,3 +1,4 @@
 *.csv
-!team_aliases.csv
-!team_alias_candidates.csv
+!dataset/files/team_aliases.csv
+!dataset/files/team_alias_candidates.csv
+checkpoints/

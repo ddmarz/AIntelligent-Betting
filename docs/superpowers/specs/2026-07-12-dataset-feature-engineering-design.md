@@ -26,6 +26,7 @@ Produrre un unico CSV pulito, pronto per addestrare sia il modello Dixon-Coles c
 ## Righe scartate
 
 - Righe senza `OddHome`/`OddDraw`/`OddAway` (1.3% del totale). Senza quota storica quella riga non è utilizzabile né per il training né per il futuro backtest della strategia di value betting (le quote storiche fungono da probabilità implicita di mercato, un segnale predittivo di per sé, oltre che da riferimento per simulare la strategia sul passato).
+- Righe in cui **tutte** le 15 colonne statistiche (`HomeShots` … `HTResult`, vedi tabella sotto) sono mancanti. Le statistiche sono ciò che i modelli devono predire, quindi una partita senza nessuna statistica non serve. Dopo i filtri su target e quote sono 54.492 righe su 227.525. Quasi tutte appartengono a 16 campionati che non hanno mai statistiche e spariscono interamente (ARG, USA, BRA, JAP, MEX, ROM, POL, SWE, NOR, RUS, DEN, CHN, IRL, FIN, AUT, SUI), più 26 righe sparse in altri campionati. Restano 173.033 righe. Il drop avviene insieme agli altri drop di righe, prima del calcolo delle feature rolling: siccome spariscono campionati interi, nessuna squadra rimasta perde partite dalla propria storia, salvo quelle 26 righe, un effetto trascurabile.
 
 ## Colonne scartate
 
@@ -42,6 +43,16 @@ Per le colonne seguenti, il valore mancante viene imputato a 0 (valore neutro) e
 | `HandiSize`, `HandiHome`, `HandiAway` | `has_handicap` |
 | `Over25`, `Under25` | `has_ou` |
 | `C_LTH`, `C_LTA`, `C_VHD`, `C_VAD`, `C_HTB`, `C_PHB` | `has_cluster_data` |
+
+I flag valgono True se è presente almeno una colonna del gruppo, **tranne `has_stats`**. `has_stats` vale True solo se sono presenti **tutte** le statistiche che il modello di Fase 2 predice: `HomeTarget`, `AwayTarget`, `HomeCorners`, `AwayCorners` (tiri in porta e corner). Sul dataset attuale sono 112.488 righe su 173.033. Le altre restano nel dataset e servono solo per il task gol.
+
+Motivo: con la regola "almeno una colonna presente", il primo tempo (`HTHome`/`HTAway`/`HTResult`), disponibile molto più spesso di tiri e corner, rendeva `has_stats=True` anche dove tiri e corner mancavano. Quei valori venivano imputati a 0 e la loss del modello si allenava su zeri finti, in circa 60.000 righe.
+
+Approcci considerati per `has_stats`:
+- **Un solo flag, definito in modo stretto (scelto).** Un flag basta per mascherare le loss di tiri in porta e corner. Si perdono come esempi per quei task le poche righe con statistiche parziali, meno dell'1%.
+- **Un flag per statistica** (`has_shots_on_target`, `has_corners`, …). Recupererebbe circa 1.200 righe parziali, ma richiede più colonne e una maschera per ogni loss. Scartato: troppa complessità per meno dell'1% dei dati.
+
+Se in futuro si aggiungono task (tiri totali, falli, cartellini), le relative colonne andranno aggiunte alla definizione di `has_stats`, oppure si passerà a un flag per statistica.
 
 Nota su `C_*`: rappresentano probabilità di appartenenza a cluster di pattern di partita (Low Tempo Home/Away-oriented, Visibly Home/Away Dominated, High Tempo Balanced, Highly Physical Balanced — vedi README del dataset sorgente). Sono strutturalmente assenti per 15 campionati su 38 (non missing casuale), da qui la necessità del flag.
 
@@ -60,7 +71,7 @@ Altre feature lagged/derivate (es. rolling su tiri/corner, scontri diretti, gior
 
 ## Copertura campionati
 
-Tutti i 38 campionati vengono mantenuti nel dataset pulito, anche quelli che non saranno il target diretto delle predizioni: l'idea è che i modelli possano imparare relazioni generali utili (es. dinamiche Elo, pattern di forma) anche da campionati non target.
+I campionati vengono mantenuti nel dataset pulito anche se non saranno il target diretto delle predizioni: l'idea è che i modelli possano imparare relazioni generali utili (es. dinamiche Elo, pattern di forma) anche da campionati non target. Fanno eccezione i 16 campionati senza nessuna statistica, che spariscono per il drop descritto in "Righe scartate": ne restano 22 su 38.
 
 ## Output
 

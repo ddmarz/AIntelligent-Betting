@@ -63,7 +63,7 @@ class MultiTaskMatchModel(nn.Module):
         self.fusion = nn.Sequential(nn.Linear(fused_input_dim, fusion_dim), nn.LeakyReLU())
 
         self.goals_head = nn.Linear(fusion_dim, 2)
-        self.shots_head = nn.Linear(fusion_dim, 4)
+        self.shots_on_target_head = nn.Linear(fusion_dim, 4)
         self.corners_head = nn.Linear(fusion_dim, 4)
 
     def forward(self, continuous, division_idx, home_team_idx, away_team_idx):
@@ -72,16 +72,16 @@ class MultiTaskMatchModel(nn.Module):
         fused = self.fusion(torch.cat([conv_out, cat_out], dim=1))
 
         goals_raw = self.goals_head(fused)
-        shots_raw = self.shots_head(fused)
+        shots_on_target_raw = self.shots_on_target_head(fused)
         corners_raw = self.corners_head(fused)
 
         return {
             "lambda_home_goals": torch.exp(goals_raw[:, 0]),
             "lambda_away_goals": torch.exp(goals_raw[:, 1]),
-            "mean_home_shots": torch.exp(shots_raw[:, 0]),
-            "mean_away_shots": torch.exp(shots_raw[:, 1]),
-            "disp_home_shots": torch.exp(shots_raw[:, 2]),
-            "disp_away_shots": torch.exp(shots_raw[:, 3]),
+            "mean_home_shots_on_target": torch.exp(shots_on_target_raw[:, 0]),
+            "mean_away_shots_on_target": torch.exp(shots_on_target_raw[:, 1]),
+            "disp_home_shots_on_target": torch.exp(shots_on_target_raw[:, 2]),
+            "disp_away_shots_on_target": torch.exp(shots_on_target_raw[:, 3]),
             "mean_home_corners": torch.exp(corners_raw[:, 0]),
             "mean_away_corners": torch.exp(corners_raw[:, 1]),
             "disp_home_corners": torch.exp(corners_raw[:, 2]),

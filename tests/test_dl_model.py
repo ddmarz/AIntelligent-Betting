@@ -15,7 +15,8 @@ def test_model_forward_produces_expected_output_shapes_and_positivity():
 
     expected_keys = {
         "lambda_home_goals", "lambda_away_goals",
-        "mean_home_shots", "mean_away_shots", "disp_home_shots", "disp_away_shots",
+        "mean_home_shots_on_target", "mean_away_shots_on_target",
+        "disp_home_shots_on_target", "disp_away_shots_on_target",
         "mean_home_corners", "mean_away_corners", "disp_home_corners", "disp_away_corners",
     }
     assert set(outputs.keys()) == expected_keys

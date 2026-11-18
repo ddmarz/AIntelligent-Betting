@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
@@ -59,8 +61,8 @@ class MatchDataset(Dataset):
         targets = {
             "goals_home": torch.tensor(float(row["FTHome"]), dtype=torch.float32),
             "goals_away": torch.tensor(float(row["FTAway"]), dtype=torch.float32),
-            "shots_home": torch.tensor(float(row["HomeShots"]), dtype=torch.float32),
-            "shots_away": torch.tensor(float(row["AwayShots"]), dtype=torch.float32),
+            "shots_on_target_home": torch.tensor(float(row["HomeTarget"]), dtype=torch.float32),
+            "shots_on_target_away": torch.tensor(float(row["AwayTarget"]), dtype=torch.float32),
             "corners_home": torch.tensor(float(row["HomeCorners"]), dtype=torch.float32),
             "corners_away": torch.tensor(float(row["AwayCorners"]), dtype=torch.float32),
             "has_stats": torch.tensor(bool(row["has_stats"])),
@@ -69,7 +71,22 @@ class MatchDataset(Dataset):
         return continuous_tensor, division_idx, home_idx, away_idx, targets
 
 
-def load_all_matches(path="matches_clean.csv"):
+def move_batch_to_device(batch, device):
+    """Move a MatchDataset batch (inputs and targets dict) to the given device."""
+    continuous, division_idx, home_idx, away_idx, targets = batch
+    targets = {key: value.to(device) for key, value in targets.items()}
+    return (
+        continuous.to(device), division_idx.to(device), home_idx.to(device), away_idx.to(device), targets
+    )
+
+
+CLEAN_MATCHES_PATH = Path(__file__).resolve().parent.parent / "dataset" / "files" / "matches_clean.csv"
+
+
+def load_all_matches(path=CLEAN_MATCHES_PATH):
+    """
+        Load and sort the matches cronologically.
+    """
     matches = pd.read_csv(path, low_memory=False)
     matches["MatchDate"] = pd.to_datetime(matches["MatchDate"])
     return matches.sort_values("MatchDate").reset_index(drop=True)

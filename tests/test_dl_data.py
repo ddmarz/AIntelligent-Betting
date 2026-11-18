@@ -26,6 +26,8 @@ def _sample_matches():
         "OddAway": [4.0, 2.8, 3.4],
         "HomeShots": [15, 10, 8],
         "AwayShots": [9, 11, 7],
+        "HomeTarget": [5, 3, 2],
+        "AwayTarget": [4, 4, 1],
         "HomeCorners": [6, 4, 3],
         "AwayCorners": [3, 5, 2],
         "has_stats": [True, True, False],
@@ -72,6 +74,9 @@ def test_match_dataset_returns_expected_tensor_shapes_and_values():
     assert away_idx.item() == team_vocab["Milan"]
     assert targets["goals_home"].item() == 2.0
     assert targets["goals_away"].item() == 1.0
+    assert targets["shots_on_target_home"].item() == 5.0
+    assert targets["shots_on_target_away"].item() == 4.0
+    assert "shots_home" not in targets
     assert targets["has_stats"].item() is True
 
 

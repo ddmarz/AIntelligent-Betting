@@ -4,13 +4,17 @@ Vedi docs/superpowers/specs/2026-07-12-dataset-feature-engineering-design.md
 per il design completo.
 """
 
+from pathlib import Path
+
 import pandas as pd
 
-# .csv file paths
-RAW_MATCHES_PATH = "Matches.csv"
-RAW_ELO_PATH = "EloRatings.csv"
-TEAM_ALIASES_PATH = "team_aliases.csv"
-OUTPUT_PATH = "matches_clean.csv"
+
+# .csv file paths (relative to this file, so they work from any working directory)
+FILES_DIR = Path(__file__).resolve().parent / "files"
+RAW_MATCHES_PATH = FILES_DIR / "Matches.csv"
+RAW_ELO_PATH = FILES_DIR / "EloRatings.csv"
+TEAM_ALIASES_PATH = FILES_DIR / "team_aliases.csv"
+OUTPUT_PATH = FILES_DIR / "matches_clean.csv"
 
 # Constants
 ROLLING_WINDOW = 5
@@ -29,6 +33,8 @@ STATS_COLUMNS = [
     "HomeYellow", "AwayYellow", "HomeRed", "AwayRed",
     "HTHome", "HTAway", "HTResult",
 ]
+# Stats predicted by the model: has_stats is True only when all of them are available
+PREDICTED_STATS_COLUMNS = ["HomeTarget", "AwayTarget", "HomeCorners", "AwayCorners"]
 HANDICAP_COLUMNS = ["HandiSize", "HandiHome", "HandiAway"]
 OU_COLUMNS = ["Over25", "Under25"]
 CLUSTER_COLUMNS = ["C_LTH", "C_LTA", "C_VHD", "C_VAD", "C_HTB", "C_PHB"]
@@ -47,6 +53,10 @@ METADATA_COLUMNS = ["Division", "MatchDate", "Season", "HomeTeam", "AwayTeam"]
 TARGET_COLUMNS = ["FTHome", "FTAway", "FTResult"]
 
 
+
+
+## Loading functions for raw datasets ##
+
 def load_matches(path=RAW_MATCHES_PATH):
     matches = pd.read_csv(path, low_memory=False, dtype={"MatchTime": str})
     matches["MatchDate"] = pd.to_datetime(matches["MatchDate"])
@@ -54,29 +64,43 @@ def load_matches(path=RAW_MATCHES_PATH):
 
 
 def load_elo(path=RAW_ELO_PATH):
+    """
+        Loading elo from the retrieved csv file.
+    """
     elo = pd.read_csv(path)
     elo["date"] = pd.to_datetime(elo["date"])
     return elo
 
 
 def load_team_aliases(path=TEAM_ALIASES_PATH):
+    """
+        Some teams have different names in the Elo dataset vs the Matches dataset, 
+        so we need to map them to a common name for merging.
+    """
     aliases = pd.read_csv(path)
     return dict(zip(aliases["MatchesTeam"], aliases["EloTeam"]))
 
 
+
+
+
 def fill_missing_elo(matches, elo, team_aliases=None):
+    """
+        
+    """
     team_aliases = team_aliases or {}
     matches = matches.sort_values("MatchDate")
+
+    # Add columns for the team names used in the Elo dataset, using aliases if necessary
     matches["HomeTeamForElo"] = matches["HomeTeam"].replace(team_aliases)
     matches["AwayTeamForElo"] = matches["AwayTeam"].replace(team_aliases)
 
-    home_lookup = elo[["club", "date", "elo"]].rename(
-        columns={"club": "HomeTeamForElo", "elo": "HomeEloLookup"}
-    ).sort_values("date")
-    away_lookup = elo[["club", "date", "elo"]].rename(
-        columns={"club": "AwayTeamForElo", "elo": "AwayEloLookup"}
-    ).sort_values("date")
 
+    home_lookup = elo[["club", "date", "elo"]].rename(columns={"club": "HomeTeamForElo", "elo": "HomeEloLookup"}).sort_values("date")
+    away_lookup = elo[["club", "date", "elo"]].rename(columns={"club": "AwayTeamForElo", "elo": "AwayEloLookup"}).sort_values("date")
+
+    # Use merge_asof to find the most recent Elo rating for each team before the match date
+    # Do it separately for home and away teams, then merge the results back into the matches dataframe
     matches = pd.merge_asof(
         matches, home_lookup,
         left_on="MatchDate", right_on="date",
@@ -89,8 +113,11 @@ def fill_missing_elo(matches, elo, team_aliases=None):
         by="AwayTeamForElo", direction="backward",
     ).drop(columns="date")
 
+    # Use the found Elo ratings to fill in any missing values in the original HomeElo and AwayElo columns
     matches["HomeElo"] = matches["HomeElo"].fillna(matches["HomeEloLookup"])
     matches["AwayElo"] = matches["AwayElo"].fillna(matches["AwayEloLookup"])
+
+    # Drop the temporary columns used for the lookup and return the cleaned matches dataframe
     return matches.drop(columns=["HomeTeamForElo", "AwayTeamForElo", "HomeEloLookup", "AwayEloLookup"])
 
 
@@ -102,6 +129,14 @@ def drop_missing_target(matches):
     return matches.dropna(subset=["FTHome", "FTAway", "FTResult"])
 
 
+def drop_missing_stats(matches):
+    """
+        Drop matches with no stats at all: stats are what we want to predict.
+    """
+    present_cols = [c for c in STATS_COLUMNS if c in matches.columns]
+    return matches.dropna(subset=present_cols, how="all")
+
+
 def drop_low_value_columns(matches):
     return matches.drop(columns=DROPPED_COLUMNS, errors="ignore")
 
@@ -109,7 +144,11 @@ def drop_low_value_columns(matches):
 def add_availability_flags(matches):
     for flag, cols in FLAG_GROUPS.items():
         present_cols = [c for c in cols if c in matches.columns]
-        matches[flag] = matches[present_cols].notna().any(axis=1)
+        if flag == "has_stats":
+            # Unlike the other flags, has_stats needs every predicted stat (not just any stat)
+            matches[flag] = matches[PREDICTED_STATS_COLUMNS].notna().all(axis=1)
+        else:
+            matches[flag] = matches[present_cols].notna().any(axis=1)
         for col in present_cols:
             if pd.api.types.is_numeric_dtype(matches[col]):
                 matches[col] = matches[col].fillna(0)
@@ -212,6 +251,7 @@ def build_clean_dataset(matches_path=RAW_MATCHES_PATH, elo_path=RAW_ELO_PATH, al
     matches = fill_missing_elo(matches, elo, team_aliases)
     matches = drop_missing_target(matches)
     matches = drop_missing_odds(matches)
+    matches = drop_missing_stats(matches)
     matches = drop_low_value_columns(matches)
     matches = add_availability_flags(matches)
     matches = add_elo_diff(matches)
